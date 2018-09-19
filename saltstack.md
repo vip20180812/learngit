@@ -1148,3 +1148,188 @@ mysql-service:
 
 ###jinja2:
 http://docs.jinkan.org/docs/jinja2/
+
+yaml-jinja
+两种分隔符： {% ... %} 和 {{ ... }}
+
+####三步走：
+* 告诉file模块，你要使用jinja    
+- - template: jinja
+<pre>
+[root@node-2 /srv/salt/lamp]# cat apache.sls 
+
+apache-pkg:
+  pkg.installed:
+    - pkgs:
+      - httpd
+
+apache-config:
+  file.managed:
+    - name: /etc/httpd/conf/httpd.conf
+    - source: salt://lamp/files/httpd.conf
+    - user: root
+    - group: root
+    - mode: 644
+    - template: jinja
+</pre>
+* 你要列出变量参数列表  
+-    - defaults:
+-      - POER: 88
+<pre>
+[root@node-2 /srv/salt/lamp]# cat apache.sls 
+
+apache-pkg:
+  pkg.installed:
+    - pkgs:
+      - httpd
+
+apache-config:
+  file.managed:
+    - name: /etc/httpd/conf/httpd.conf
+    - source: salt://lamp/files/httpd.conf
+    - user: root
+    - group: root
+    - mode: 644
+    - template: jinja
+    - defaults:
+      PORT: 88
+</pre>
+
+* 模板引用  {{ PORT }}
+<pre>
+[root@node-2 /srv/salt/lamp]# vim /srv/salt/lamp/files/httpd.conf
+#Listen 12.34.56.78:80
+Listen {{ PORT }}
+[root@node-2 /srv/salt/lamp]# salt 'node-3.localdomain' state.sls lamp.init
+node-3.localdomain:
+----------
+          ID: apache-pkg
+    Function: pkg.installed
+      Result: True
+     Comment: All specified packages are already installed
+     Started: 03:03:03.437468
+    Duration: 1196.154 ms
+     Changes:
+              diff:
+                  --- 
+                  +++ 
+                  @@ -39,7 +39,7 @@
+                   # prevent Apache from glomming onto all bound IP addresses.
+                   #
+                   #Listen 12.34.56.78:80
+                  -Listen 88
+                  +Listen 89
+                   
+                   #
+                   # Dynamic Shared Object (DSO) Support
+
+
+    
+</pre>
+
+模板里支持：salt  grains  pillar 进行赋值
+
+* grains     {{ grains['fqdn_ip4'] [0] }}:{{ PORT }}
+<pre>
+[root@node-2 /srv/salt/lamp]# vim /srv/salt/lamp/files/httpd.conf
+#Listen 12.34.56.78:80
+Listen {{ grains['fqdn_ip4'] [0] }}:{{ PORT }}
+          ID: apache-config
+    Function: file.managed
+        Name: /etc/httpd/conf/httpd.conf
+      Result: True
+     Comment: File /etc/httpd/conf/httpd.conf updated
+     Started: 03:11:51.539578
+    Duration: 104.738 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -39,7 +39,7 @@
+                   # prevent Apache from glomming onto all bound IP addresses.
+                   #
+                   #Listen 12.34.56.78:80
+                  -Listen [u'10.0.0.13']:89
+                  +Listen 10.0.0.13:89
+</pre>
+
+* salt   {{ salt['network.hw_addr']('ens33') }}
+<pre>
+[root@node-2 /srv/salt/lamp]# vim /srv/salt/lamp/files/httpd.conf 
+#Listen 12.34.56.78:80
+Listen {{ grains['fqdn_ip4'] [0] }}:{{ PORT }}
+# MAC is {{ salt['network.hw_addr']('ens33') }}
+#
+
+[root@node-2 /srv/salt/lamp]# salt 'node-3.localdomain' state.sls lamp.init
+----------
+          ID: apache-config
+    Function: file.managed
+        Name: /etc/httpd/conf/httpd.conf
+      Result: True
+     Comment: File /etc/httpd/conf/httpd.conf updated
+     Started: 03:18:29.562320
+    Duration: 184.872 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -40,7 +40,7 @@
+                   #
+                   #Listen 12.34.56.78:80
+                   Listen 10.0.0.13:89
+                  -# MAC is Interface "ens*" not in available interfaces: "ens34", "lo", "ens38", "ens33"
+                  +# MAC is 00:0c:29:7c:9b:8d
+                   #
+</pre>
+
+* pillar     {{ pillar['apache'] }}
+<pre> 
+[root@node-2 /srv/salt/lamp]# vim /srv/salt/lamp/files/httpd.conf
+[root@node-2 /srv/salt/lamp]# salt 'node-2.localdomain' state.sls lamp.init
+
+#Listen 12.34.56.78:80
+Listen {{ grains['fqdn_ip4'] [0] }}:{{ PORT }}
+# MAC is {{ salt['network.hw_addr']('ens33') }}
+# pillar is  {{ pillar['apache'] }}
+
+
+
+          ID: apache-config
+    Function: file.managed
+        Name: /etc/httpd/conf/httpd.conf
+      Result: True
+     Comment: File /etc/httpd/conf/httpd.conf updated
+     Started: 03:29:40.459072
+    Duration: 202.077 ms
+     Changes:   
+              ----------
+              diff:
+                  --- 
+                  +++ 
+                  @@ -39,9 +39,13 @@
+                   # prevent Apache from glomming onto all bound IP addresses.
+                   #
+                   #Listen 12.34.56.78:80
+                  -Listen 80
+                  -
+                  -#
+                  +Listen 220.250.64.225:89
+                  +# MAC is 00:0c:29:27:37:d8
+                  +# pillar is  httpd
+
+</pre>
+
+* 写在模板文件里
+{{ grains['fqdn_ip4'] [0] }}:{{ PORT }}
+{{ salt['network.hw_addr']('ens33') }}
+{{ pillar['apache'] }}
+* 写在sls里边的Defaults，变量列表中    
+    
+-    -defaults:
+      PORT: 89
+
+
+官方优秀模块参考： https://github.com/saltstack-formulas
