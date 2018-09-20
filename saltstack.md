@@ -1333,3 +1333,343 @@ Listen {{ grains['fqdn_ip4'] [0] }}:{{ PORT }}
 
 
 官方优秀模块参考： https://github.com/saltstack-formulas
+
+
+###base
+
+[root@node-2 ~]# vim /etc/salt/master
+
+file_roots:
+  base:
+    - /srv/salt/base
+    - /srv/salt/prod
+
+pillar_roots:
+  base:
+    - /srv/pillar/base
+  prod:
+    - /srv/pillar/prod
+
+[root@node-2 ~]# mkdir -p /srv/salt/base
+[root@node-2 ~]# mkdir -p /srv/salt/prod
+[root@node-2 ~]# mkdir -p /srv/pillar/base
+[root@node-2 ~]# mkdir -p /srv/pillar/prod
+
+[root@node-2 /srv/salt/base/init]# cd /srv/salt/base
+[root@node-2 /srv/salt/base/init]# mkdir init
+[root@node-2 /srv/salt/base/init]# cd init/
+[root@node-2 /srv/salt/base/init]# vim dns.sls
+[root@node-2 /srv/salt/base/init]# cat dns.sls 
+
+/etc/resolv.conf:
+  file.managed:
+    - source: salt://init/files/resolv.conf
+    - user: root
+    - gourp: root
+    - mode: 644
+
+[root@node-2 /srv/salt/base/init]# mkdir files
+[root@node-2 /srv/salt/base/init]# cp /etc/resolv.conf files/
+
+[root@node-2 /srv/salt/base/init]# tree 
+.
+├── dns.sls
+└── files
+    └── resolv.conf
+
+[root@node-2 /srv/salt/base/init]# cp /etc/zabbix/zabbix_agentd.conf files/ 
+[root@node-2 /srv/salt/base/init]# vim files/zabbix_agentd.conf
+[root@node-2 /srv/salt/base/init]# cat files/zabbix_agentd.conf | grep Server | grep -v '#'
+Server={{ Zabbix_Server }}
+
+###prod：（以编译安装haproxy为例）
+<pre>
+[root@node-2 /srv/salt/prod]# tree
+.
+├── haproxy
+│   ├── files
+│   │   ├── haproxy-1.6.14.tar.gz
+│   │   └── haproxy.init
+│   └── install.sls
+├── keepalived
+├── memcached
+├── nginx
+├── php
+└── pkg
+    └── make.sls
+
+</pre>
+
+* 基础依赖包安装
+<pre>
+[root@node-2 /srv/salt/base]# cd /srv/salt/prod/
+[root@node-2 /srv/salt/prod]# ls
+[root@node-2 /srv/salt/prod]# 
+[root@node-2 /srv/salt/prod]# mkdir haproxy
+[root@node-2 /srv/salt/prod]# mkdir keepalived
+[root@node-2 /srv/salt/prod]# mkdir nginx
+[root@node-2 /srv/salt/prod]# mkdir php
+[root@node-2 /srv/salt/prod]# mkdir memcached
+[root@node-2 /srv/salt/prod]# mkdir pkg
+[root@node-2 /srv/salt/prod]# ls
+haproxy  keepalived  memcached  nginx  php  pkg
+[root@node-2 /srv/salt/prod/pkg]# cd pkg
+[root@node-2 /srv/salt/prod/pkg]# vim make.sls
+[root@node-2 /srv/salt/prod/pkg]# cat make.sls 
+make-pkg:
+  pkg.installed:
+    - pkgs:
+      - gcc
+      - gcc-c++
+      - glibc
+      - make
+      - openssl
+      - openssl-devel
+      - pcre
+      - pcre-devel
+</pre>
+* 编译安装haproxy（安装一遍为salt做准备）
+<pre>
+[root@node-2 /srv/salt/prod/haproxy]# mkdir files
+[root@node-2 /srv/salt/prod/haproxy]# cd files/
+[root@node-2 /srv/salt/prod/haproxy/files]# rz  ##上传源码
+[root@node-2 /srv/salt/prod/haproxy/files]#tar zxf haproxy-1.6.14.tar.gz
+[root@node-2 /srv/salt/prod/haproxy/files/haproxy-1.6.14]# make TARGET=linux2628 PREFIX=/usr/local/haproxy-1.6.14
+[root@node-2 /srv/salt/prod/haproxy/files/haproxy-1.6.14]# make install PREFIX=/usr/local/haproxy-1.6.14
+[root@node-2 /srv/salt/prod/haproxy/files/haproxy-1.6.14]# cd /usr/local/
+[root@node-2 /usr/local]# ln -s /usr/local/haproxy-1.6.14/ /usr/local/haproxy
+
+
+</pre>
+* salt 编译安装haproxy
+<pre>
+[root@node-2 /usr/local/haproxy]# cd /srv/salt/prod/haproxy/files/haproxy-1.6.14/examples/
+[root@node-2 /srv/salt/prod/haproxy/files/haproxy-1.6.14/examples]# vim haproxy.init
+BIN=/usr/local/haproxy/sbin/$BASENAME
+[root@node-2 /srv/salt/prod/haproxy/files/haproxy-1.6.14/examples]#cp haproxy.init /srv/salt/prod/haproxy/files/
+[root@node-2 /srv/salt/prod/haproxy]# vim install.sls
+[root@node-2 /srv/salt/prod/haproxy]# cat install.sls 
+include:
+  - pkg.make
+
+haproxy-install:
+  file.managed:
+    - name: /usr/local/src/haproxy-1.6.14.tar.gz
+    - source: salt://haproxy/files/haproxy-1.6.14.tar.gz
+    - mode: 755
+    - user: root
+    - group: root
+  cmd.run:
+    - name: cd /usr/local/src && tar zxf haproxy-1.6.14.tar.gz && cd  haproxy-1.6.14 && make TARGET=linux2628 PREFIX=/usr/local/haproxy-1.6.14 && make install PREFIX=/usr/local/haproxy-1.6.14 && ln -s /usr/local/haproxy-1.6.14/ /usr/local/haproxy
+    - unless: test -L /usr/local/haproxy
+    - require:
+      - pkg: make-pkg
+      - file: haproxy-install
+[root@node-2 /srv/salt/prod/haproxy]# salt '*' state.sls haproxy.install
+node-2.localdomain:
+    Data failed to compile:
+----------
+    State 'make-pkg' in SLS 'pkg.make' is not formed as a list
+node-3.localdomain:
+    Data failed to compile:
+----------
+    State 'make-pkg' in SLS 'pkg.make' is not formed as a list
+ERROR: Minions returned with non-zero exit code
+
+[root@node-2 /srv/salt/prod/haproxy]# salt '*' state.sls haproxy.install env=prod
+
+</pre>
+
+* 详解 haproxy的install.sls
+<pre>
+[root@node-2 /srv/salt/prod/haproxy]# cat install.sls 
+#包括pkg.mkae
+include:
+  - pkg.make
+
+haproxy-install:
+  file.managed:   ##安装文件管理
+    - name: /usr/local/src/haproxy-1.6.14.tar.gz
+    - source: salt://haproxy/files/haproxy-1.6.14.tar.gz
+    - mode: 755
+    - user: root
+    - group: root
+  cmd.run:      ##编译安装
+    - name: cd /usr/local/src && tar zxf haproxy-1.6.14.tar.gz && cd  haproxy-1.6.14 && make TARGET=linux2628 PREFIX=/usr/local/haproxy-1.6.14 && make install PREFIX=/usr/local/haproxy-1.6.14 && ln -s /usr/local/haproxy-1.6.14/ /usr/local/haproxy
+    - unless: test -L /usr/local/haproxy 
+    - require:    #依赖
+      - pkg: make-pkg
+      - file: haproxy-install
+# unless后边的命令返回为True，不执行cmd.run
+
+#管理配置文件
+haproxy-init:
+  file.managed:
+    - name: /etc/init.d/haproxy
+    - source: salt://modules/haproxy/files/haproxy.init
+    - mode: 755
+    - user: root
+    - group: root
+    - require_in:
+      - file: haproxy-install
+  cmd.run:
+    - name: chkconfig --add haproxy
+    - unless: chkconfig --list | grep haproxy
+##内核调优
+net.ipv4.ip_nonlocal_bind:  
+  sysctl.present:
+    - value: 1
+
+</pre>
+
+###业务引用（修改路径，把模块全部放到modules里）
+<pre>
+[root@node-2 /srv/salt/prod]# tree
+.
+├── haproxy
+│   ├── files
+│   │   ├── haproxy-1.6.14.tar.gz
+│   │   └── haproxy.init
+│   └── install.sls
+├── keepalived
+├── memcached
+├── nginx
+├── php
+└── pkg
+    └── make.sls
+
+[root@node-2 /srv/salt/prod]# mkdir modules
+[root@node-2 /srv/salt/prod]# mv * modules/
+[root@node-2 /srv/salt/prod]# mkdir cluster
+
+[root@node-2 /srv/salt/prod]# tree
+.
+├── cluster
+└── modules
+    ├── haproxy
+    │   ├── files
+    │   │   ├── haproxy-1.6.14.tar.gz
+    │   │   └── haproxy.init
+    │   └── install.sls
+    ├── keepalived
+    ├── memcached
+    ├── nginx
+    ├── php
+    └── pkg
+        └── make.sls
+#修改路径
+[root@node-2 /srv/salt/prod]# cat modules/haproxy/install.sls 
+include:
+  - pkg.make
+
+haproxy-install:
+  file.managed:
+    - name: /usr/local/src/haproxy-1.6.14.tar.gz
+    - source: salt://haproxy/files/haproxy-1.6.14.tar.gz
+.......
+.......
+net.ipv4.ip_nonlocal_bind:
+  sysctl.present:
+    - value: 1
+[root@node-2 /srv/salt/prod]# vim modules/haproxy/install.sls
+[root@node-2 /srv/salt/prod]# cat modules/haproxy/install.sls 
+include:
+  - modules.pkg.make
+
+haproxy-install:
+  file.managed:
+    - name: /usr/local/src/haproxy-1.6.14.tar.gz
+    - source: salt://modules/haproxy/files/haproxy-1.6.14.tar.gz
+.......
+.......
+    - source: salt://modules/haproxy/files/haproxy.init
+net.ipv4.ip_nonlocal_bind:
+  sysctl.present:
+    - value: 1
+
+[root@node-2 /srv/salt/prod]# salt '*' state.sls modules.haproxy.install env=prod
+</pre>
+###业务
+<pre>
+[root@node-2 /srv/salt/prod/]#cd cluster
+[root@node-2 /srv/salt/prod/cluster]# mkdir files
+[root@node-2 /srv/salt/prod/cluster]# cd files
+[root@node-2 /srv/salt/prod/cluster]# vim haproxy-outside.cfg
+[root@node-2 /srv/salt/prod/cluster/files]# cat haproxy-outside.cfg 
+
+global
+maxconn 100000
+chroot /usr/local/haproxy
+uid 99  
+gid 99 
+daemon
+nbproc 1 
+pidfile /usr/local/haproxy/logs/haproxy.pid 
+log 127.0.0.1 local3 info
+
+defaults
+option http-keep-alive
+maxconn 100000
+mode http
+timeout connect 5000ms
+timeout client  50000ms
+timeout server 50000ms
+
+listen stats
+mode http
+bind 0.0.0.0:8888
+stats enable
+stats uri     /haproxy-status 
+stats auth    haproxy:saltstack
+
+frontend frontend_www_example_com
+bind 192.168.56.21:80
+mode http
+option httplog
+log global
+    default_backend backend_www_example_com
+
+backend backend_www_example_com
+option forwardfor header X-REAL-IP
+option httpchk HEAD / HTTP/1.0
+balance source
+server web-node1  10.0.0.12:8080 check inter 2000 rise 30 fall 15
+server web-node2  10.0.0.13:8080 check inter 2000 rise 30 fall 15
+#穿件sls文件
+[root@node-2 /srv/salt/prod/cluster/files]# cd ..
+
+[root@node-2 /srv/salt/prod/cluster]# vim haproxy-outside.sls
+[root@node-2 /srv/salt/prod/cluster]# cat haproxy-outside.sls 
+
+include:
+  - modules.haproxy.install
+
+haproxy-service:
+  file.managed:
+    - name: /etc/haproxy/haproxy.cfg
+    - source: salt://cluster/files/haproxy-outside.cfg
+    - user: root
+    - group: root
+    - mode: 644
+  service.running:
+    - name: haproxy
+    - enable: True
+    - reload: True
+    - require:
+      - cmd: haproxy-install
+    - watch:
+      - file: haproxy-service
+
+[root@node-2 /srv/salt/prod/cluster]# vim /srv/salt/base/top.sls 
+[root@node-2 /srv/salt/prod/cluster]# cat /srv/salt/base/top.sls 
+base:
+  '*':
+    - init.init
+
+prod:
+  '*':
+    - cluster.haproxy-outside
+
+[root@node-2 ~]# salt 'node-2*' state.highstate test=True 
+</pre>
+
